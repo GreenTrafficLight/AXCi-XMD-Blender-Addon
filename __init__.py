@@ -34,8 +34,8 @@ class ImportBin(Operator, ImportHelper):
     )
 
     def execute(self, context):
-        from . import  import_bin
-        import_bin.main(self.filepath, self.files, self.clear_scene)
+        from . import  import_xmd
+        import_xmd.main(self.filepath, self.files, self.clear_scene)
         return {'FINISHED'}
 
 def menu_func_import(self, context):

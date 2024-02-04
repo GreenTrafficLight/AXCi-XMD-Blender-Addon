@@ -22,113 +22,68 @@ def build_xmd(filename, data):
 
     bone_mapping = []
 
-    for index, bfmdlnode in enumerate(data.bfmdlnodes):
+    for xmd_mesh in data.meshes:
 
-        bone_mapping.append(data.bfmdlnodes_sort.names[index])
+        mesh = bpy.data.meshes.new(xmd_mesh.name)
+        obj = bpy.data.objects.new(xmd_mesh.name, mesh)
 
-        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
-        bone = armature.edit_bones.new(data.bfmdlnodes_sort.names[index])
+        bpy.context.collection.objects.link(obj)
 
-        bone.head = (0, 0, 0)
-        bone.tail = (0, 1, 0)
+        modifier = obj.modifiers.new(armature.name, type="ARMATURE")
+        modifier.object = ob
 
-        bone.matrix = bfmdlnode.compute_world_transform()
-        
-        if bfmdlnode.parent_index != -1:
+        obj.parent = ob
 
-            bone.parent = armature.edit_bones[data.bfmdlnodes_sort.names[bfmdlnode.parent_index]]
-            bone.matrix = armature.edit_bones[data.bfmdlnodes_sort.names[bfmdlnode.parent_index]].matrix @ bone.matrix
+        vertexList = {}
+        facesList = []
+        normals = []
 
+        faces = StripToTriangle(xmd_mesh.face_buffer)
 
-    bpy.ops.object.mode_set(mode='OBJECT')
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
 
-    for index, bfmdlmesh in enumerate(data.bfmdlmeshs):
+        for j in range(len(xmd_mesh.vertex_buffer["positions"])):
 
-        bfmdlmesh_name = data.bfmdlnodes_sort.names[bfmdlmesh.name_index]
+            vertex = bm.verts.new(xmd_mesh.vertex_buffer["positions"][j])
 
-        bfmdlmesh_empty = add_empty(bfmdlmesh_name)
-        bfmdlmesh_empty.parent = ob
+            if xmd_mesh.vertex_buffer["normals"] != []:
+                vertex.normal = xmd_mesh.vertex_buffer["normals"][j]
+                normals.append(xmd_mesh.vertex_buffer["normals"][j])
+            
+            vertex.index =  j
 
-        for i in range(bfmdlmesh.start_index, bfmdlmesh.start_index + bfmdlmesh.submeshs_count):
+            vertexList[j] = vertex
 
-            mesh = bpy.data.meshes.new(bfmdlmesh_name + "_" + str(i))
-            obj = bpy.data.objects.new(bfmdlmesh_name + "_" + str(i), mesh)
+        # Set faces
+        for j in range(0, len(faces)):
+            try:
+                face = bm.faces.new([vertexList[faces[j][0]], vertexList[faces[j][1]], vertexList[faces[j][2]]])
+                face.smooth = True
+                facesList.append([face, [vertexList[faces[j][0]], vertexList[faces[j][1]], vertexList[faces[j][2]]]])
+            except:
+                pass
 
-            bpy.context.collection.objects.link(obj)
+        if xmd_mesh.vertex_buffer["texCoords"] != []:
 
-            modifier = obj.modifiers.new(armature.name, type="ARMATURE")
-            modifier.object = ob
+            uv_name = "UV1Map"
+            uv_layer1 = bm.loops.layers.uv.get(uv_name) or bm.loops.layers.uv.new(uv_name)
 
-            obj.parent = bfmdlmesh_empty
+            for f in bm.faces:
+                for l in f.loops:
+                    l[uv_layer1].uv = [xmd_mesh.vertex_buffer["texCoords"][l.vert.index][0], 1 - xmd_mesh.vertex_buffer["texCoords"][l.vert.index][1]]
 
-            vertexList = {}
-            facesList = []
-            normals = []
+        bm.to_mesh(mesh)
+        bm.free()
 
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
+        # Set normals
+        mesh.use_auto_smooth = True
 
-            bfmdlsubmesh = data.bfmdlsubmeshs[i]
-
-            for j in range(len(bfmdlsubmesh.vtx.positions)):
-
-                vertex = bm.verts.new(bfmdlsubmesh.vtx.positions[j])
-                
-                vertex.index =  j
-
-                vertexList[j] = vertex
-
-            # Set faces
-            faces = bfmdlsubmesh.vtx.face_indices
-            for j in range(0, len(bfmdlsubmesh.vtx.face_indices)):
-                try:
-                    face = bm.faces.new([vertexList[faces[j][0]], vertexList[faces[j][1]], vertexList[faces[j][2]]])
-                    face.smooth = True
-                    facesList.append([face, [vertexList[faces[j][0]], vertexList[faces[j][1]], vertexList[faces[j][2]]]])
-                except:
-                    pass
-
-            if bfmdlsubmesh.vtx.uvs != []:
-
-                uv_name = "UV1Map"
-                uv_layer1 = bm.loops.layers.uv.get(uv_name) or bm.loops.layers.uv.new(uv_name)
-
-                for f in bm.faces:
-                    for l in f.loops:
-                        l[uv_layer1].uv = [bfmdlsubmesh.vtx.uvs[l.vert.index][0], 1 - bfmdlsubmesh.vtx.uvs[l.vert.index][1]]
-
-
-            bm.to_mesh(mesh)
-            bm.free()
-
-            for i in range(len(bfmdlsubmesh.vtx.bone_indices)):
-                if bfmdlsubmesh.vtx.bone_indices != []:
-                    vg_name = str(bfmdlsubmesh.vtx.bone_indices[i]) # bone_mapping[data.test[vg]]
-                    if not vg_name in obj.vertex_groups:
-                        group = obj.vertex_groups.new(name=vg_name)
-                    else:
-                        group = obj.vertex_groups[vg_name]
-                    weight = 1.0
-                    if weight > 0.0:
-                        group.add([i], weight, 'REPLACE')
-                    # for k, vg in enumerate(bfmdlsubmesh.vtx.bone_indices[i]):
-                    #     vg_name = str(vg) # bone_mapping[data.test[vg]]
-                    #     if not vg_name in obj.vertex_groups:
-                    #         group = obj.vertex_groups.new(name=vg_name)
-                    #     else:
-                    #         group = obj.vertex_groups[vg_name]
-                    #     weight = 1.0
-                    #     if weight > 0.0:
-                    #         group.add([i], weight, 'REPLACE')
-
-            # Set normals
-            mesh.use_auto_smooth = True
-
-            if normals != []:
-                try:
-                    mesh.normals_split_custom_set_from_vertices(normals)
-                except:
-                    pass
+        if normals != []:
+            try:
+                mesh.normals_split_custom_set_from_vertices(normals)
+            except:
+                pass
 
     ob.rotation_euler = ( radians(90), 0, 0 )
 
@@ -151,7 +106,8 @@ def main(filepath, files, clear_scene):
         br = BinaryReader(file, "<")
         if file_extension == ".xmd":
             xmd = XMD()
-            xmd.read(br, filepath)
+            xmd.read(br, filepath, file_size)
+            build_xmd(filename, xmd)
 
 
     
